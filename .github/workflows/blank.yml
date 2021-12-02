@@ -34,3 +34,21 @@ jobs:
         run: |
           echo Add other actions to build,
           echo test, and deploy your project.
+          sudo add-apt-repository ppa:mhier/libboost-latest
+          sudo apt update
+          sudo apt install libboost1.68-dev
+          cat /usr/include/boost/version.hpp | grep "BOOST_LIB_VERSION"
+          sudo apt-get install -y libgtest-dev
+          sudo apt-get install -y cmake
+          sudo apt-get install -y valgrind
+          cd /usr/src/gtest/
+          sudo cmake CMakeLists.txt
+          sudo make
+          sudo cp *.a /usr/lib
+          cd $PROJECT_DIR
+          mkdir build
+          cd build
+          cmake ../project/
+          make
+          valgrind tests/ut/runTests
+          python3 ../project/tests/sct/tests.py
