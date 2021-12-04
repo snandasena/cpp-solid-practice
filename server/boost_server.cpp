@@ -20,6 +20,8 @@ namespace net = boost::asio;
 
 using tcp = boost::asio::ip::tcp;
 
+constexpr int PORT = 8080;
+
 namespace solid_practice
 {
     std::size_t request_count()
@@ -30,7 +32,7 @@ namespace solid_practice
 
     std::time_t now()
     {
-        return std::time(0);
+        return std::time(nullptr);
     }
 }
 
@@ -39,7 +41,7 @@ class HttpConnection : public std::enable_shared_from_this<HttpConnection>
 {
 
 public:
-    HttpConnection(tcp::socket socket) : socket_(std::move(socket))
+    explicit HttpConnection(tcp::socket socket) : socket_(std::move(socket))
     {
 
     }
@@ -106,9 +108,10 @@ private:
                 break;
         }
 
-        WriteRespose();
+        WriteResponse();
     }
 
+    // Construct a response message based on the program state
     void CreateResponse()
     {
         if (request_.target() == "/count")
@@ -148,8 +151,76 @@ private:
         }
     }
 
-    void WriteRespose()
+    // Asynchronously transmit the response message
+    void WriteResponse()
     {
+        auto self = shared_from_this();
+        response_.content_length(response_.body().size());
 
+        http::async_write(
+            socket_,
+            response_,
+            [self](beast::error_code ec, std::size_t)
+            {
+                self->socket_.shutdown(tcp::socket::shutdown_send, ec);
+                self->deadline_.cancel();
+            });
+    }
+
+    void CheckDeadline()
+    {
+        auto self = shared_from_this();
+        deadline_.async_wait(
+            [self](beast::error_code ec)
+            {
+                self->socket_.close(ec);
+            });
     }
 };
+
+// "Loop" forever accepting new connections.
+
+void http_server(tcp::acceptor &acceptor, tcp::socket &socket)
+{
+
+    acceptor.async_accept(
+        socket,
+        [&socket](beast::error_code ec)
+        {
+            if (!ec)
+            {
+                std::make_shared<HttpConnection>(std::move(socket))->start();
+            }
+        });
+}
+
+
+int main(int argc, char *argv[])
+{
+    try
+    {
+        if (argc != 3)
+        {
+            std::cerr << "Usage: " << argv[0] << " <address> <port>\n";
+            std::cerr << "  For IPv4, try:\n";
+            std::cerr << "    receiver 0.0.0.0 80\n";
+            std::cerr << "  For IPv6, try:\n";
+            std::cerr << "    receiver 0::0 80\n";
+
+            return EXIT_FAILURE;
+        }
+
+//        auto const address = net::ip::make_address(argv[1]);
+//        auto port = static_cast<unsigned short > (std::atoi(argv[2]));
+
+        net::io_context ioc{1};
+        tcp::acceptor acceptor{ioc, tcp::endpoint(tcp::v4(), PORT)};
+        tcp::socket socket{ioc};
+        http_server(acceptor, socket);
+        ioc.run();
+    } catch (std::exception &e)
+    {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+}
